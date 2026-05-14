@@ -1,0 +1,16 @@
+.tldraw-container {
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.status-indicator {
+    font-family: monospace;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(4px);
+    transition: all 0.2s ease;
+}
+
+.status-indicator:hover {
+    background: rgba(0, 0, 0, 0.9);
+}

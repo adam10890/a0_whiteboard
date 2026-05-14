@@ -1,0 +1,33 @@
+<html>
+<head>
+    <script type="module">
+        import { store } from "/plugins/a0_whiteboard/webui/whiteboard-store.js";
+    </script>
+</head>
+<body>
+    <div x-data>
+        <button class="text-button whiteboard-action-button"
+                id="whiteboard"
+                @click="$store.whiteboard && $store.whiteboard.open()"
+                :title="$store.whiteboard?.connectionStatus === 'connected' ? 'Open Whiteboard' : 'Open Whiteboard (disconnected)'">
+            <span class="material-symbols-outlined">draw</span>
+            <p>Whiteboard</p>
+        </button>
+    </div>
+
+    <x-component path="/plugins/a0_whiteboard/webui/panel.html"></x-component>
+
+    <style>
+        .whiteboard-action-button.whiteboard-notification {
+            color: #818cf8 !important;
+            opacity: 1 !important;
+            animation: whiteboard-pulse 1.2s ease-in-out infinite;
+        }
+
+        @keyframes whiteboard-pulse {
+            0%, 100% { filter: drop-shadow(0 0 3px rgba(129, 140, 248, 0.45)); }
+            50% { filter: drop-shadow(0 0 9px rgba(129, 140, 248, 0.9)); }
+        }
+    </style>
+</body>
+</html>

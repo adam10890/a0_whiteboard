@@ -1,0 +1,42 @@
+# Whiteboard Extension Configuration
+# Configuration for the tldraw whiteboard integration with Agent Zero
+
+# UI Settings
+ui:
+  port: 4173              # Port for the whiteboard UI (production)
+  dev_port: 5173          # Port for Vite dev server
+  host: "0.0.0.0"         # Host to bind to
+
+# AG-UI WebSocket Settings  
+ag_ui:
+  websocket_url: "ws://localhost:8001/ws/custom/whiteboard"
+  auto_reconnect: true
+  max_reconnect_attempts: 5
+  reconnect_delay: 1.0    # Initial delay in seconds (exponential backoff)
+
+# Export Settings
+export:
+  default_format: "svg"
+  directory: "./whiteboard_exports"
+  max_shapes_for_png: 100  # Limit for PNG export performance
+
+# Feature Flags
+features:
+  enabled: true           # Master enable/disable switch
+  eager_connect: false    # Connect to UI on agent init (vs lazy on first use)
+  sync_to_ui: true        # Send state changes to UI
+  log_events: true        # Log AG-UI events for debugging
+
+# Shape Defaults
+shapes:
+  default_fill: "#3b82f6"
+  default_stroke: "#000000"
+  default_width: 100
+  default_height: 60
+  max_shapes_per_canvas: 500
+
+# Docker Settings (for Phase 7)
+docker:
+  image_name: "a0-whiteboard-ui"
+  container_name: "a0-whiteboard-ui"
+  network: "agent-zero-network"

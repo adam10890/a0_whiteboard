@@ -1,0 +1,126 @@
+<html>
+<head>
+    <title>Whiteboard</title>
+    <script type="module">
+        import { store } from "/plugins/a0_whiteboard/webui/whiteboard-store.js";
+    </script>
+</head>
+
+<body>
+    <div x-data>
+        <template x-if="config">
+            <div>
+                <div class="section-title">Whiteboard</div>
+                <div class="section-description">
+                    Floating tldraw canvas panel with real-time agent sync via WebSocket.
+                    The tldraw app runs as a separate process proxied at <code>/whiteboard/</code>.
+                </div>
+
+                <!-- Open Whiteboard -->
+                <div class="field">
+                    <div class="field-label">
+                        <div class="field-title">Open Whiteboard</div>
+                        <div class="field-description">
+                            Launch the floating whiteboard panel. The agent can draw shapes on it and you can toggle privacy mode.
+                        </div>
+                    </div>
+                    <div class="field-control">
+                        <button class="btn btn-field"
+                            @click="$store.whiteboard?.open()">
+                            Open Panel
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Auto-connect -->
+                <div class="field">
+                    <div class="field-label">
+                        <div class="field-title">Auto-Connect on Open</div>
+                        <div class="field-description">
+                            Automatically connect to the whiteboard WebSocket when the panel is opened.
+                            Disable if you want to open the panel without syncing with the agent.
+                        </div>
+                    </div>
+                    <div class="field-control">
+                        <label class="toggle">
+                            <input type="checkbox" x-model="config.auto_connect" />
+                            <span class="toggler"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Privacy mode default -->
+                <div class="field">
+                    <div class="field-label">
+                        <div class="field-title">Default Privacy Mode</div>
+                        <div class="field-description">
+                            When enabled, new whiteboard sessions start in privacy mode — the agent cannot
+                            see your whiteboard changes until you toggle it off.
+                        </div>
+                    </div>
+                    <div class="field-control">
+                        <label class="toggle">
+                            <input type="checkbox" x-model="config.default_privacy_mode" />
+                            <span class="toggler"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- tldraw server URL -->
+                <div class="section-title" style="margin-top: 1.5rem;">tldraw Server</div>
+                <div class="section-description">
+                    The whiteboard panel embeds the tldraw app via an iframe proxy at <code>/whiteboard/</code>.
+                    By default it expects tldraw running on port 4173 inside the container.
+                </div>
+
+                <div class="field">
+                    <div class="field-label">
+                        <div class="field-title">Proxy Path</div>
+                        <div class="field-description">
+                            The path at which the tldraw app is proxied. Default: <code>/whiteboard/</code>.
+                            Change only if you've reconfigured the reverse proxy.
+                        </div>
+                    </div>
+                    <div class="field-control">
+                        <input type="text" x-model="config.iframe_proxy_path"
+                               placeholder="/whiteboard/" />
+                    </div>
+                </div>
+
+                <!-- Board persistence -->
+                <div class="section-title" style="margin-top: 1.5rem;">Board Persistence</div>
+
+                <div class="field">
+                    <div class="field-label">
+                        <div class="field-title">Board Storage Directory</div>
+                        <div class="field-description">
+                            Directory under <code>work/</code> where saved boards are stored.
+                            Default: <code>work/whiteboard/boards/</code>
+                        </div>
+                    </div>
+                    <div class="field-control">
+                        <input type="text" x-model="config.boards_dir"
+                               placeholder="work/whiteboard/boards" />
+                    </div>
+                </div>
+
+                <div class="field">
+                    <div class="field-label">
+                        <div class="field-title">Auto-Save</div>
+                        <div class="field-description">
+                            Automatically save the board state every time the agent makes changes.
+                        </div>
+                    </div>
+                    <div class="field-control">
+                        <label class="toggle">
+                            <input type="checkbox" x-model="config.auto_save" />
+                            <span class="toggler"></span>
+                        </label>
+                    </div>
+                </div>
+
+            </div>
+        </template>
+    </div>
+</body>
+</html>

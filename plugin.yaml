@@ -1,0 +1,11 @@
+name: a0_whiteboard
+title: "Whiteboard"
+description: "Floating canvas whiteboard panel. HTML5 canvas with real-time agent sync via WebSocket /whiteboard. Agent can draw shapes; save/load boards to work/whiteboard/boards/. Upgrade path to tldraw available via docs/TLDRAW_FUTURE.md."
+version: 0.3.3
+author: "frantz"
+always_enabled: false
+
+settings_sections:
+  - agent
+per_project_config: false
+per_agent_config: false
