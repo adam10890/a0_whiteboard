@@ -55,6 +55,12 @@ class WhiteboardContext(Extension):
             else:
                 sections.append("\n_The whiteboard is currently empty._")
 
+            sections.append("\n**Where it lives:**")
+            sections.append(
+                "The whiteboard is a built-in surface in the Agent Zero Right Canvas "
+                "(icon: draw). It auto-focuses when you call `whiteboard create`. "
+                "Users can switch between the tldraw and HTML5 engines from the panel header."
+            )
             sections.append("\n**How to interact:**")
             sections.append("- Use the `whiteboard` tool with action `create` to draw shapes")
             sections.append("- Use action `describe` to get full description of all shapes")

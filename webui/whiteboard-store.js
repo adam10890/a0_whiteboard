@@ -1,58 +1,96 @@
 /**
  * a0_whiteboard — whiteboard-store.js
- * Port of worktree whiteboard-store.js with API paths changed to plugin scope.
- * Board management: POST /api/plugins/a0_whiteboard/<handler>
- * WebSocket: Socket.IO namespace /ws + addHandlers(['plugins/a0_whiteboard/ws_whiteboard'])
+ *
+ * Right Canvas surface store (A0 v1.15). Lives inside the docked surface,
+ * so all floating-panel chrome (drag, resize, minimize, fullscreen) is
+ * owned by the canvas system and intentionally absent here.
+ *
+ * Responsibilities:
+ *   - WebSocket sync with /plugins/a0_whiteboard/ws_whiteboard
+ *   - postMessage bridge to whichever engine iframe is mounted
+ *     (tldraw-engine.html or canvas.html)
+ *   - Engine + surface-mode state, persisted across reloads
+ *   - Board persistence (save/load/list/clear) via plugin REST API
+ *
+ * Protocol with engine iframes is unchanged:
+ *   whiteboard:iframe_ready, whiteboard:initial_state, whiteboard:state_change,
+ *   whiteboard:full_state, whiteboard:intent, whiteboard:request_sync,
+ *   whiteboard:connection_status
  */
 import { createStore } from '/js/AlpineStore.js';
 import { getNamespacedClient } from '/js/websocket.js';
 import { callJsonApi } from '/js/api.js';
 
 const API_BASE = "/plugins/a0_whiteboard";
+const ENGINE_TLDRAW = '/plugins/a0_whiteboard/webui/engines/tldraw-engine.html';
+const ENGINE_HTML5 = '/plugins/a0_whiteboard/webui/canvas.html';
+const LS_ENGINE = 'whiteboard_engine';
 
 async function wbPost(handler, body = {}) {
     return callJsonApi(`${API_BASE}/${handler}`, body);
 }
 
 export const store = createStore('whiteboard', {
-    // State
-    isOpen: false,
-    isMinimized: false,
-    isFullscreen: false,
     privacyMode: false,
     connectionStatus: 'disconnected',
     reconnectAttempts: 0,
 
-    // Position and size
-    position: { x: 100, y: 100 },
-    size: { width: 600, height: 450 },
+    currentEngine: 'tldraw',
+    surfaceMode: 'canvas',
+    pendingAttention: false,
 
-    // Drag state
-    isDragging: false,
-    dragOffset: { x: 0, y: 0 },
-
-    // Resize state
-    isResizing: false,
-    resizeStart: { x: 0, y: 0, width: 0, height: 0 },
-
-    // WebSocket
     ws: null,
     _wsClient: null,
+    _mounted: false,
+    _applyingRemote: false,
 
     init() {
-        console.log('[Whiteboard] Initialized.');
-
-        // Restore position/size from sessionStorage (localStorage may be unavailable in iframe context)
         try {
-            const savedPosition = sessionStorage.getItem('whiteboard_position');
-            if (savedPosition) this.position = JSON.parse(savedPosition);
-            const savedSize = sessionStorage.getItem('whiteboard_size');
-            if (savedSize) this.size = JSON.parse(savedSize);
+            const saved = localStorage.getItem(LS_ENGINE);
+            if (saved === 'tldraw' || saved === 'html5') this.currentEngine = saved;
         } catch (e) { /* ignore */ }
-
-        document.addEventListener('mousemove', this.handleMouseMove.bind(this));
-        document.addEventListener('mouseup', this.handleMouseUp.bind(this));
         window.addEventListener('message', this.handleIframeMessage.bind(this));
+    },
+
+    get engineUrl() {
+        return this.currentEngine === 'html5' ? ENGINE_HTML5 : ENGINE_TLDRAW;
+    },
+
+    onPanelMount(el) {
+        this._mounted = true;
+        if (!this._wsClient) this.connectWebSocket();
+        try { this.pendingAttention = false; } catch (e) {}
+    },
+
+    onSurfaceModeChange(mode) {
+        if (mode === 'canvas' || mode === 'modal') this.surfaceMode = mode;
+    },
+
+    toggleMode() {
+        const next = this.surfaceMode === 'modal' ? 'canvas' : 'modal';
+        try {
+            if (window.A0RightCanvas && typeof window.A0RightCanvas.setMode === 'function') {
+                window.A0RightCanvas.setMode('whiteboard', next);
+                this.surfaceMode = next;
+                return;
+            }
+        } catch (e) { /* fall through */ }
+        // Fallback: dispatch a custom event the canvas system may listen for.
+        // Verify against A0 v1.15 source and replace this branch with the
+        // documented API call once it is confirmed.
+        window.dispatchEvent(new CustomEvent('a0:right-canvas:set-mode', {
+            detail: { surfaceId: 'whiteboard', mode: next },
+        }));
+        this.surfaceMode = next;
+    },
+
+    switchEngine(engine) {
+        if (engine !== 'tldraw' && engine !== 'html5') return;
+        if (engine === this.currentEngine) return;
+        this.currentEngine = engine;
+        try { localStorage.setItem(LS_ENGINE, engine); } catch (e) {}
+        // The iframe's :src binding re-renders. After the new engine signals
+        // iframe_ready we request a fresh state so it rehydrates from server.
     },
 
     handleIframeMessage(event) {
@@ -61,11 +99,15 @@ export const store = createStore('whiteboard', {
 
         if (message.type === 'whiteboard:iframe_ready') {
             this.sendToIframe({ type: 'whiteboard:connection_status', status: this.connectionStatus });
+            if (this._wsClient) {
+                this._wsClient.emit('whiteboard_request_state', {}).catch(() => {});
+            }
         } else if (message.type === 'whiteboard:request_sync') {
             if (this._wsClient) {
                 this._wsClient.emit('whiteboard_request_state', {}).catch(() => {});
             }
         } else if (message.type === 'whiteboard:state_change' || message.type === 'whiteboard:full_state') {
+            if (this._applyingRemote) return;
             if (!this.privacyMode && this._wsClient) {
                 const { type, ...rest } = message;
                 this._wsClient.emit('whiteboard_state_change', rest).catch(() => {});
@@ -92,22 +134,19 @@ export const store = createStore('whiteboard', {
         }
     },
 
-    open() {
-        this.isOpen = true;
-        this.isMinimized = false;
-        if (!this._wsClient) this.connectWebSocket();
-    },
-
-    close() {
-        this.isOpen = false;
-        if (this._wsClient) {
-            this._wsClient.disconnect();
-            this._wsClient = null;
-        }
-    },
-
-    toggleMinimize() {
-        this.isMinimized = !this.isMinimized;
+    requestFocus() {
+        // Ask the canvas system to focus/dock the whiteboard surface.
+        // Verify the exact API against A0 v1.15 source.
+        try {
+            if (window.A0RightCanvas && typeof window.A0RightCanvas.focus === 'function') {
+                window.A0RightCanvas.focus('whiteboard');
+                return;
+            }
+        } catch (e) {}
+        window.dispatchEvent(new CustomEvent('a0:right-canvas:focus', {
+            detail: { surfaceId: 'whiteboard' },
+        }));
+        this.pendingAttention = true;
     },
 
     showAgentNotification(action, data) {
@@ -117,13 +156,7 @@ export const store = createStore('whiteboard', {
         else if (action === 'delete_shape') message = '🎨 Agent deleted a shape';
         else if (action === 'clear_canvas') message = '🎨 Agent cleared the whiteboard';
 
-        if (!this.isOpen) {
-            const btn = document.getElementById('whiteboard');
-            if (btn) {
-                btn.classList.add('whiteboard-notification');
-                setTimeout(() => btn.classList.remove('whiteboard-notification'), 3000);
-            }
-        }
+        this.requestFocus();
         this.showToast(message);
     },
 
@@ -138,73 +171,10 @@ export const store = createStore('whiteboard', {
             box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 10000;
         `;
         document.body.appendChild(toast);
-        setTimeout(() => {
-            setTimeout(() => toast.remove(), 300);
-        }, 3000);
-    },
-
-    toggleFullscreen() {
-        this.isFullscreen = !this.isFullscreen;
-        if (this.isFullscreen) {
-            this.savedPosition = { ...this.position };
-            this.savedSize = { ...this.size };
-            this.position = { x: 0, y: 0 };
-            this.size = { width: window.innerWidth, height: window.innerHeight };
-        } else {
-            this.position = this.savedPosition || { x: 100, y: 100 };
-            this.size = this.savedSize || { width: 600, height: 450 };
-        }
-    },
-
-    getPanelStyle() {
-        if (this.isFullscreen) return 'top: 0; left: 0; width: 100vw; height: 100vh; border-radius: 0;';
-        return `top: ${this.position.y}px; left: ${this.position.x}px; width: ${this.size.width}px; height: ${this.size.height}px;`;
-    },
-
-    startDrag(event) {
-        if (this.isFullscreen) return;
-        this.isDragging = true;
-        this.dragOffset = { x: event.clientX - this.position.x, y: event.clientY - this.position.y };
-        event.preventDefault();
-    },
-
-    startResize(event) {
-        if (this.isFullscreen) return;
-        this.isResizing = true;
-        this.resizeStart = { x: event.clientX, y: event.clientY, width: this.size.width, height: this.size.height };
-        event.preventDefault();
-    },
-
-    handleMouseMove(event) {
-        if (this.isDragging) {
-            this.position = {
-                x: Math.max(0, event.clientX - this.dragOffset.x),
-                y: Math.max(0, event.clientY - this.dragOffset.y),
-            };
-        }
-        if (this.isResizing) {
-            const dx = event.clientX - this.resizeStart.x;
-            const dy = event.clientY - this.resizeStart.y;
-            this.size = {
-                width: Math.max(300, this.resizeStart.width + dx),
-                height: Math.max(250, this.resizeStart.height + dy),
-            };
-        }
-    },
-
-    handleMouseUp() {
-        if (this.isDragging) {
-            this.isDragging = false;
-            try { sessionStorage.setItem('whiteboard_position', JSON.stringify(this.position)); } catch (e) {}
-        }
-        if (this.isResizing) {
-            this.isResizing = false;
-            try { sessionStorage.setItem('whiteboard_size', JSON.stringify(this.size)); } catch (e) {}
-        }
+        setTimeout(() => { setTimeout(() => toast.remove(), 300); }, 3000);
     },
 
     connectWebSocket() {
-        if (!this.isOpen) return;
         try {
             this.connectionStatus = 'connecting';
             this._wsClient = getNamespacedClient('/ws');
@@ -229,7 +199,11 @@ export const store = createStore('whiteboard', {
             this._wsClient.on('whiteboard_initial_state', (envelope) => {
                 const payload = this._unwrapWsPayload(envelope);
                 const state = payload.state || payload;
-                if (state) this.sendToIframe({ type: 'whiteboard:initial_state', state });
+                if (state) {
+                    this._applyingRemote = true;
+                    this.sendToIframe({ type: 'whiteboard:initial_state', state });
+                    setTimeout(() => { this._applyingRemote = false; }, 400);
+                }
             });
 
             this._wsClient.on('whiteboard_intent', (envelope) => {
@@ -243,7 +217,9 @@ export const store = createStore('whiteboard', {
 
             this._wsClient.on('whiteboard_state_change', (envelope) => {
                 const payload = this._unwrapWsPayload(envelope);
+                this._applyingRemote = true;
                 this.sendToIframe({ type: 'whiteboard:state_change', ...payload });
+                setTimeout(() => { this._applyingRemote = false; }, 400);
             });
 
             this._wsClient.connect().catch((error) => {
@@ -256,7 +232,6 @@ export const store = createStore('whiteboard', {
         }
     },
 
-    // Board Management — all paths now plugin-scoped
     async saveBoard() {
         const name = prompt('Enter board name (optional):');
         if (name === null) return;

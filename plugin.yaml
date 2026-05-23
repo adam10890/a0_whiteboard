@@ -1,7 +1,7 @@
 name: a0_whiteboard
 title: "Whiteboard"
-description: "Floating canvas whiteboard panel. HTML5 canvas with real-time agent sync via WebSocket /whiteboard. Agent can draw shapes; save/load boards to work/whiteboard/boards/. Upgrade path to tldraw available via docs/TLDRAW_FUTURE.md."
-version: 0.3.3
+description: "Collaborative whiteboard surface for the Agent Zero Right Canvas. Dual engine (tldraw + HTML5) with real-time agent sync via WebSocket /whiteboard. Boards persist to usr/workdir/whiteboard_boards/."
+version: 0.4.0
 author: "frantz"
 always_enabled: false
 
