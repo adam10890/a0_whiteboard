@@ -62,6 +62,28 @@ export const store = createStore('whiteboard', {
         try { this.pendingAttention = false; } catch (e) {}
     },
 
+    // Right Canvas surface lifecycle — called by register-whiteboard.js when the
+    // surface is mounted into the canvas (canvas or modal mode).
+    async onOpen(el, opts = {}) {
+        if (opts && (opts.mode === 'canvas' || opts.mode === 'modal')) {
+            this.surfaceMode = opts.mode;
+        }
+        this.onPanelMount(el);
+    },
+
+    // Right Canvas surface lifecycle — called when the surface is closed.
+    // Keep the WebSocket alive so re-opening is instant; just clear UI hints.
+    cleanup() {
+        try { this.pendingAttention = false; } catch (e) {}
+    },
+
+    // Dock handoff hooks — no-ops for the whiteboard (no thumbnail/freeze
+    // needed because the iframe persists across mode changes via the canvas
+    // chrome). Kept as stubs so the canvas system can call them safely.
+    beginSurfaceHandoff() { /* no-op */ },
+    finishSurfaceHandoff() { /* no-op */ },
+    cancelSurfaceHandoff() { /* no-op */ },
+
     onSurfaceModeChange(mode) {
         if (mode === 'canvas' || mode === 'modal') this.surfaceMode = mode;
     },

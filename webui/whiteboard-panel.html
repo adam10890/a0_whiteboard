@@ -3,8 +3,11 @@
   Loaded by the canvas system; replaces the legacy floating panel.html.
   No drag/resize/minimize/fullscreen — the canvas chrome owns those.
 -->
-<div x-data x-init="$store.whiteboard && $store.whiteboard.onPanelMount($el)" class="wb-surface-root">
-  <div class="wb-panel" :data-mode="$store.whiteboard.surfaceMode" :data-attention="$store.whiteboard.pendingAttention">
+<div x-data class="wb-surface-root" data-surface-id="whiteboard">
+  <div class="wb-panel"
+       x-create="$store.whiteboard && $store.whiteboard.onOpen($el)"
+       x-destroy="$store.whiteboard && $store.whiteboard.cleanup($el)"
+       :data-mode="$store.whiteboard.surfaceMode" :data-attention="$store.whiteboard.pendingAttention">
     <header class="wb-toolbar">
       <span class="wb-title">
         <span class="material-symbols-outlined">draw</span>
