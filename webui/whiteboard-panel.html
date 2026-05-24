@@ -84,7 +84,15 @@
     min-height: 44px;
     box-sizing: border-box;
     flex-shrink: 0;
+    flex-wrap: wrap;
   }
+  /* A0 v1.17 removed the right-canvas width cap, so we must survive
+     very narrow widths. Hide the title text below ~360px; let actions
+     wrap below the title. */
+  @container (max-width: 360px) {
+    .wb-title > span:nth-child(2) { display: none; }
+  }
+  .wb-surface-root { container-type: inline-size; }
   .wb-title {
     display: inline-flex;
     align-items: center;
@@ -137,7 +145,9 @@
     padding: 3px 6px;
     font-size: 12px;
     cursor: pointer;
+    max-width: 90px;
   }
+  .wb-actions { flex-wrap: wrap; row-gap: 4px; justify-content: flex-end; }
   .wb-body {
     flex: 1 1 auto;
     min-height: 0;

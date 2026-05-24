@@ -1,13 +1,27 @@
 # a0_whiteboard
 
-> Collaborative whiteboard for Agent Zero v1.15. Registers as a built-in
-> surface in the **Right Canvas** (alongside `_browser`, `_office`,
+> Collaborative whiteboard for Agent Zero v1.15–v1.17. Registers as a
+> built-in surface in the **Right Canvas** (alongside `_browser`,
 > `_desktop`). Dual engine: **tldraw** (primary) and **HTML5 canvas**
 > (fallback), switchable from the panel header. Real-time agent sync via
 > Socket.IO `/whiteboard` namespace. Boards persist to
 > `usr/workdir/whiteboard_boards/`.
 
-**Version:** 0.4.0
+**Version:** 0.4.1
+
+## Agent Zero v1.17 alignment
+
+- **Canvas auto-open is opt-in** (v1.16+): when the agent draws, the
+  panel header pulses (`pendingAttention`) but does not force-focus the
+  surface unless the user has already mounted it. This matches A0's
+  "explicit user action required" rule.
+- **No fixed width cap** (v1.17): the toolbar wraps; the title text
+  collapses below ~360px wide; works from ~280px up to full-workspace.
+- **Modal-header surface switcher** (v1.17): the canvas chrome reads
+  `icon` and `title` from `right_canvas_register_surfaces` metadata; our
+  registration provides both.
+- **Explicit close button** (v1.17): provided by canvas chrome — the
+  panel intentionally does not render its own close.
 
 ## What it gives the agent
 

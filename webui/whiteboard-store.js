@@ -135,18 +135,24 @@ export const store = createStore('whiteboard', {
     },
 
     requestFocus() {
-        // Ask the canvas system to focus/dock the whiteboard surface.
-        // Verify the exact API against A0 v1.15 source.
+        // Agent Zero v1.16+ made canvas auto-open opt-in ("Tool results no
+        // longer auto-open the Browser or Office canvas; explicit user
+        // actions are required"). We respect that by default: we flip a
+        // pendingAttention flag so the panel header pulses, and only call
+        // the focus API if the user already has the panel mounted (i.e.
+        // they previously opted in to the surface).
+        this.pendingAttention = true;
+        if (!this._mounted) return;
         try {
             if (window.A0RightCanvas && typeof window.A0RightCanvas.focus === 'function') {
                 window.A0RightCanvas.focus('whiteboard');
                 return;
             }
         } catch (e) {}
+        // Custom-event fallback for builds that don't expose a global API.
         window.dispatchEvent(new CustomEvent('a0:right-canvas:focus', {
             detail: { surfaceId: 'whiteboard' },
         }));
-        this.pendingAttention = true;
     },
 
     showAgentNotification(action, data) {
