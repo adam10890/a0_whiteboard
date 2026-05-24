@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Whiteboard — tldraw engine</title>
+  <link rel="stylesheet" href="https://esm.sh/tldraw@3.13.0/tldraw.css" />
+  <style>
+    html, body, #root { margin: 0; padding: 0; width: 100%; height: 100%; background: #1a1a1a; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .wb-fallback {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: #94a3b8; font-size: 13px; padding: 20px; text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div class="wb-fallback">Loading tldraw editor… (requires internet on first load)</div>
+  </div>
+
+  <script type="module">
+    /*
+     * tldraw engine for a0_whiteboard.
+     * Delivered as CDN ESM (esm.sh) to keep the plugin a static-asset drop-in.
+     * Pinned to tldraw 3.13.x — v4 has breaking API changes.
+     */
+    const TLDRAW_VERSION = '3.13.0';
+    const REACT_VERSION = '18.3.1';
+    const ESM = 'https://esm.sh';
+
+    let React, ReactDOM, Tldraw;
+    let editor = null;
+    let applyingRemote = false;
+    let broadcastTimer = null;
+
+    const bridgeUrl = new URL('./tldraw-shape-bridge.js', import.meta.url).href;
+    const { shapesToTLShapes, tlShapesToShapes } =
+        await import(bridgeUrl);
+
+    try {
+      React = (await import(`${ESM}/react@${REACT_VERSION}`)).default;
+      const reactDom = await import(`${ESM}/react-dom@${REACT_VERSION}/client`);
+      ReactDOM = reactDom;
+      const tldrawMod = await import(
+        `${ESM}/tldraw@${TLDRAW_VERSION}?deps=react@${REACT_VERSION},react-dom@${REACT_VERSION}`
+      );
+      Tldraw = tldrawMod.Tldraw;
+    } catch (err) {
+      console.error('[tldraw-engine] Failed to load tldraw ESM bundle:', err);
+      document.getElementById('root').innerHTML =
+        '<div class="wb-fallback">Failed to load tldraw. Switch to HTML5 engine from the panel toolbar.</div>';
+      window.parent.postMessage({ type: 'whiteboard:iframe_ready' }, '*');
+      throw err;
+    }
+
+    function scheduleBroadcast() {
+      if (applyingRemote) return;
+      if (broadcastTimer) clearTimeout(broadcastTimer);
+      broadcastTimer = setTimeout(() => {
+        if (!editor) return;
+        try {
+          const tlShapes = editor.getCurrentPageShapes();
+          const shapes = tlShapesToShapes(tlShapes);
+          window.parent.postMessage({ type: 'whiteboard:full_state', shapes }, '*');
+        } catch (err) {
+          console.warn('[tldraw-engine] broadcast failed:', err);
+        }
+      }, 250);
+    }
+
+    function applyServerShapes(shapes) {
+      if (!editor) return;
+      applyingRemote = true;
+      try {
+        const existing = editor.getCurrentPageShapes();
+        if (existing.length) {
+          editor.deleteShapes(existing.map(s => s.id));
+        }
+        const partials = shapesToTLShapes(shapes || []);
+        if (partials.length) {
+          editor.createShapes(partials);
+        }
+      } catch (err) {
+        console.warn('[tldraw-engine] applyServerShapes failed:', err);
+      } finally {
+        setTimeout(() => { applyingRemote = false; }, 50);
+      }
+    }
+
+    function applyIntent(action, data) {
+      if (!editor) return;
+      if (action === 'create_shapes' && Array.isArray(data?.shapes)) {
+        applyingRemote = true;
+        try {
+          const partials = shapesToTLShapes(data.shapes);
+          if (partials.length) editor.createShapes(partials);
+        } finally {
+          setTimeout(() => { applyingRemote = false; }, 50);
+        }
+      } else if (action === 'clear_canvas') {
+        applyingRemote = true;
+        try {
+          const existing = editor.getCurrentPageShapes();
+          if (existing.length) editor.deleteShapes(existing.map(s => s.id));
+        } finally {
+          setTimeout(() => { applyingRemote = false; }, 50);
+        }
+      }
+    }
+
+    function Bridge() {
+      React.useEffect(() => {
+        if (!editor) return;
+        const unsub = editor.store.listen(() => {
+          scheduleBroadcast();
+        }, { scope: 'document', source: 'user' });
+        return () => unsub();
+      }, []);
+      return null;
+    }
+
+    function onMount(e) {
+      editor = e;
+      try {
+        editor.user.updateUserPreferences({ colorScheme: 'dark' });
+      } catch (err) { /* ignore */ }
+      window.parent.postMessage({ type: 'whiteboard:request_sync' }, '*');
+    }
+
+    window.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (!msg || typeof msg !== 'object' || !msg.type) return;
+      if (msg.type === 'whiteboard:initial_state') {
+        const state = msg.state || {};
+        applyServerShapes(state.shapes || []);
+      } else if (msg.type === 'whiteboard:state_change') {
+        if (Array.isArray(msg.shapes)) applyServerShapes(msg.shapes);
+      } else if (msg.type === 'whiteboard:intent') {
+        applyIntent(msg.action, msg.data);
+      } else if (msg.type === 'whiteboard:connection_status') {
+        // The panel header shows status; engine doesn't need its own indicator.
+      }
+    });
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(
+      React.createElement(Tldraw, { onMount, autoFocus: false },
+        React.createElement(Bridge)
+      )
+    );
+
+    window.parent.postMessage({ type: 'whiteboard:iframe_ready' }, '*');
+  </script>
+</body>
+</html>

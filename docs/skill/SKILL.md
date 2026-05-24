@@ -1,7 +1,7 @@
 ---
 name: "whiteboard"
-description: "Interactive tldraw whiteboard for agent-user visual collaboration. Provides real-time drawing canvas with WebSocket sync, vision analysis, and agent-controlled shapes. Use when user wants to draw, diagram, sketch, or visually communicate."
-version: "1.0.0"
+description: "Interactive whiteboard for agent-user visual collaboration. Built-in Right Canvas surface in Agent Zero v1.15 with dual engine (tldraw + HTML5), real-time WebSocket sync, vision analysis, and agent-controlled shapes. Use when user wants to draw, diagram, sketch, or visually communicate."
+version: "1.1.0"
 author: "Adam"
 tags: ["ui", "visual", "collaboration", "tldraw", "drawing", "diagram"]
 trigger_patterns:
@@ -65,7 +65,11 @@ Whiteboard uses the new websocket_manager architecture (NOT the old Gateway on p
 
 ### For the User
 
-Open the Whiteboard panel in the UI sidebar. Draw shapes, add text, and the agent will see your changes in real-time via WebSocket.
+Open the **Whiteboard** surface from the Right Canvas surface picker
+(לוח הציור מופיע בפאנל הימני של ה-Right Canvas). Dock it alongside chat
+(`canvas` mode) or pop it out as a modal. Switch between the tldraw and
+HTML5 engines from the panel header. Draw shapes, add text, and the
+agent will see your changes in real-time via WebSocket.
 
 ## Installation
 

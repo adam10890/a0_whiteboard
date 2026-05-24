@@ -1,29 +1,71 @@
 # a0_whiteboard
 
-> Floating canvas whiteboard panel. HTML5 canvas with real-time agent sync via WebSocket /whiteboard. Agent can draw shapes; save/load boards to work/whiteboard/boards/. Upgrade path to tldraw available via docs/TLDRAW_FUTURE.md.
+> Collaborative whiteboard for Agent Zero v1.15–v1.17. Registers as a
+> built-in surface in the **Right Canvas** (alongside `_browser`,
+> `_desktop`). Dual engine: **tldraw** (primary) and **HTML5 canvas**
+> (fallback), switchable from the panel header. Real-time agent sync via
+> Socket.IO `/whiteboard` namespace. Boards persist to
+> `usr/workdir/whiteboard_boards/`.
 
-**Version:** 0.2.0
+**Version:** 0.4.1
+
+## Agent Zero v1.17 alignment
+
+- **Canvas auto-open is opt-in** (v1.16+): when the agent draws, the
+  panel header pulses (`pendingAttention`) but does not force-focus the
+  surface unless the user has already mounted it. This matches A0's
+  "explicit user action required" rule.
+- **No fixed width cap** (v1.17): the toolbar wraps; the title text
+  collapses below ~360px wide; works from ~280px up to full-workspace.
+- **Modal-header surface switcher** (v1.17): the canvas chrome reads
+  `icon` and `title` from `right_canvas_register_surfaces` metadata; our
+  registration provides both.
+- **Explicit close button** (v1.17): provided by canvas chrome — the
+  panel intentionally does not render its own close.
+
+## What it gives the agent
+
+A second visual platform (next to the browser) for talking back to the
+user — diagrams, sketches, layouts, status boards, anything spatial.
+The agent draws via the `whiteboard` tool; the surface auto-focuses when
+the agent makes changes so the user sees the update immediately.
+
+## Where it lives
+
+The whiteboard appears in the Right Canvas surface picker. Docked
+(`canvas` mode) for working alongside chat, or popped out (`modal` mode)
+when full-screen attention is needed. There is no floating overlay
+button — the chat-input launcher from earlier versions was removed in
+0.4.0.
+
+## Engines
+
+| Engine | When to use |
+| ------ | ----------- |
+| **tldraw** (default) | Full editor — shapes, undo/redo, multi-select, native drawing tools. Loads from `esm.sh` (needs internet on first load; cacheable). |
+| **HTML5** | Lightweight fallback. Pure built-in `canvas.html` — no external dependencies. Use when working offline. |
+
+Switch between engines from the engine `<select>` in the panel header.
+State is preserved across switches: the new engine rehydrates from the
+server's current shape list.
 
 ## Installation
 
-### Option A: Upload ZIP (easiest)
-1. Open Agent Zero GUI
-2. Go to **Settings → Plugins**
-3. Click **Upload ZIP**
-4. Select `a0_whiteboard.zip`
+### Option A: Upload ZIP
+1. Open Agent Zero GUI → **Settings → Plugins**
+2. Click **Upload ZIP** → select `a0_whiteboard.zip`
 
 ### Option B: Git (private repo)
-1. Open Agent Zero GUI
-2. Go to **Settings → Plugins → Install from Git**
-3. Enter the repo URL and your Personal Access Token
+1. **Settings → Plugins → Install from Git**
+2. Enter the repo URL and your Personal Access Token
 
 ### Option C: Manual copy
 ```bash
-# Copy plugin folder to any Agent Zero container
 docker cp ./a0_whiteboard <container>:/a0/usr/plugins/a0_whiteboard
 ```
 
 ## Documentation
 
-- [`docs/COMP_WHITEBOARD.md`](docs/COMP_WHITEBOARD.md)
-- [`docs/skill/SKILL.md`](docs/skill/SKILL.md) — Agent skill reference
+- [`docs/COMP_WHITEBOARD.md`](docs/COMP_WHITEBOARD.md) — component spec
+- [`docs/TLDRAW_FUTURE.md`](docs/TLDRAW_FUTURE.md) — earlier container-based tldraw plan (now superseded by the in-iframe ESM approach in `webui/engines/tldraw-engine.html`)
+- [`docs/skill/SKILL.md`](docs/skill/SKILL.md) — agent skill reference
