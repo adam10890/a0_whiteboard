@@ -62,6 +62,28 @@ export const store = createStore('whiteboard', {
         try { this.pendingAttention = false; } catch (e) {}
     },
 
+    // Right Canvas surface lifecycle — called by register-whiteboard.js when the
+    // surface is mounted into the canvas (canvas or modal mode).
+    async onOpen(el, opts = {}) {
+        if (opts && (opts.mode === 'canvas' || opts.mode === 'modal')) {
+            this.surfaceMode = opts.mode;
+        }
+        this.onPanelMount(el);
+    },
+
+    // Right Canvas surface lifecycle — called when the surface is closed.
+    // Keep the WebSocket alive so re-opening is instant; just clear UI hints.
+    cleanup() {
+        try { this.pendingAttention = false; } catch (e) {}
+    },
+
+    // Dock handoff hooks — no-ops for the whiteboard (no thumbnail/freeze
+    // needed because the iframe persists across mode changes via the canvas
+    // chrome). Kept as stubs so the canvas system can call them safely.
+    beginSurfaceHandoff() { /* no-op */ },
+    finishSurfaceHandoff() { /* no-op */ },
+    cancelSurfaceHandoff() { /* no-op */ },
+
     onSurfaceModeChange(mode) {
         if (mode === 'canvas' || mode === 'modal') this.surfaceMode = mode;
     },
@@ -180,6 +202,28 @@ export const store = createStore('whiteboard', {
         setTimeout(() => { setTimeout(() => toast.remove(), 300); }, 3000);
     },
 
+    _reconnectTimer: null,
+    scheduleReconnect() {
+        if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
+        this.reconnectAttempts++;
+        const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+        console.log(`[Whiteboard] Scheduling reconnect attempt #${this.reconnectAttempts} in ${delay}ms`);
+        this._reconnectTimer = setTimeout(() => {
+            if (this.connectionStatus === 'connected') return;
+            this.showToast(`🔄 Reconnecting to agent (attempt #${this.reconnectAttempts})...`);
+            if (this._wsClient) {
+                this.connectionStatus = 'connecting';
+                this._wsClient.connect().catch((error) => {
+                    this.connectionStatus = 'disconnected';
+                    console.error('[Whiteboard] Reconnect failed:', error);
+                    this.scheduleReconnect();
+                });
+            } else {
+                this.connectWebSocket();
+            }
+        }, delay);
+    },
+
     connectWebSocket() {
         try {
             this.connectionStatus = 'connecting';
@@ -188,18 +232,26 @@ export const store = createStore('whiteboard', {
 
             this._wsClient.onConnect(() => {
                 this.connectionStatus = 'connected';
+                this.reconnectAttempts = 0;
+                if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
                 this.sendToIframe({ type: 'whiteboard:connection_status', status: 'connected' });
                 this._wsClient.emit('whiteboard_request_state', {}).catch(() => {});
+                this.showToast('🟢 Connected to agent');
             });
 
             this._wsClient.onDisconnect(() => {
+                if (this.connectionStatus === 'connected') {
+                    this.showToast('🔴 Disconnected from agent');
+                }
                 this.connectionStatus = 'disconnected';
                 this.sendToIframe({ type: 'whiteboard:connection_status', status: 'disconnected' });
+                this.scheduleReconnect();
             });
 
             this._wsClient.onError((error) => {
                 this.connectionStatus = 'disconnected';
                 console.error('[Whiteboard] WebSocket error:', error);
+                this.scheduleReconnect();
             });
 
             this._wsClient.on('whiteboard_initial_state', (envelope) => {
@@ -231,10 +283,12 @@ export const store = createStore('whiteboard', {
             this._wsClient.connect().catch((error) => {
                 this.connectionStatus = 'disconnected';
                 console.error('[Whiteboard] Failed to connect:', error);
+                this.scheduleReconnect();
             });
         } catch (error) {
             this.connectionStatus = 'disconnected';
             console.error('[Whiteboard] Failed to create client:', error);
+            this.scheduleReconnect();
         }
     },
 

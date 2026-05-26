@@ -1,0 +1,11 @@
+<div
+  class="right-canvas-surface-panel wb-canvas-surface"
+  data-surface-id="whiteboard"
+  :class="{
+    'is-active': $store.rightCanvas?.isSurfaceVisible('whiteboard'),
+    'is-mounted': $store.rightCanvas?.isSurfaceRendered('whiteboard')
+  }"
+  :aria-hidden="(!$store.rightCanvas?.isSurfaceVisible('whiteboard')).toString()"
+>
+  <x-component path="/plugins/a0_whiteboard/webui/whiteboard-panel.html" mode="canvas"></x-component>
+</div>
