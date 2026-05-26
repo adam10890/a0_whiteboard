@@ -35,7 +35,7 @@ export default async function registerWhiteboardSurface(canvas) {
     id: "whiteboard",
     title: "Whiteboard",
     icon: "draw",
-    order: 30,
+    order: 35,
     modalPath: "/plugins/a0_whiteboard/webui/main.html",
     beginDockHandoff() {
       whiteboardStore.beginSurfaceHandoff?.();

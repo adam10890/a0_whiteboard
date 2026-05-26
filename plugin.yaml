@@ -1,7 +1,7 @@
 name: a0_whiteboard
 title: "Whiteboard"
-description: "Collaborative whiteboard surface for the Agent Zero Right Canvas (verified against v1.17 docs). Dual engine (tldraw + HTML5) with real-time agent sync via WebSocket /whiteboard. Boards persist to usr/workdir/whiteboard_boards/."
-version: 0.4.1
+description: "Collaborative whiteboard surface for the Agent Zero Right Canvas (v1.18). Dual engine (tldraw + HTML5) with real-time agent sync via WebSocket /whiteboard. Boards persist to usr/workdir/whiteboard_boards/."
+version: 0.4.2
 author: "frantz"
 always_enabled: false
 
