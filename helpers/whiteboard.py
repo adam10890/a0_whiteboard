@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import time
 from dataclasses import dataclass, field, asdict, fields
 from pathlib import Path
@@ -16,8 +17,28 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Default boards directory under the project workdir.
-_DEFAULT_BOARDS_DIR = Path(os.environ.get("WHITEBOARD_BOARDS_DIR", "usr/workdir/whiteboard_boards"))
+
+def _resolve_boards_dir() -> Path:
+    """Always resolve to an absolute path (API cwd is often /, not /a0)."""
+    env = os.environ.get("WHITEBOARD_BOARDS_DIR", "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    try:
+        from helpers import files
+
+        return Path(files.get_abs_path_dockerized("usr/workdir/whiteboard_boards"))
+    except Exception:
+        pass
+    for candidate in (
+        Path("/a0/usr/workdir/whiteboard_boards"),
+        Path.cwd() / "usr/workdir/whiteboard_boards",
+    ):
+        if candidate.exists():
+            return candidate.resolve()
+    return Path("/a0/usr/workdir/whiteboard_boards")
+
+
+_DEFAULT_BOARDS_DIR = _resolve_boards_dir()
 
 _get_ws_manager = None
 _WS_EVENT_KEY = "event_type"
@@ -101,7 +122,10 @@ class WhiteboardManager:
     """Full in-memory manager with async file persistence."""
 
     def __init__(self, boards_dir: str | Path | None = None) -> None:
-        self._boards_dir = Path(boards_dir) if boards_dir else _DEFAULT_BOARDS_DIR
+        if boards_dir:
+            self._boards_dir = Path(boards_dir).expanduser().resolve()
+        else:
+            self._boards_dir = _resolve_boards_dir()
         self._state = WhiteboardState()
         self._lock = asyncio.Lock()
 
@@ -129,6 +153,10 @@ class WhiteboardManager:
 
     def get_shapes(self) -> list[dict[str, Any]]:
         return [s.model_dump() for s in self._state.shapes]
+
+    def get_state_snapshot(self) -> dict[str, Any]:
+        """Authoritative board snapshot for WS sync/reconcile."""
+        return build_state_snapshot(self)
 
     # ------------------------------------------------------------------ #
     #  Mutations
@@ -284,14 +312,56 @@ class WhiteboardManager:
         )
 
 
+def build_state_snapshot(manager: WhiteboardManager) -> dict[str, Any]:
+    """Build authoritative board snapshot (safe to call on any manager instance)."""
+    state = manager.state.model_dump()
+    shapes = state["shapes"]
+    return {
+        "state": state,
+        "shapes": shapes,
+        "revision": state["updated_at"],
+        "shape_count": len(shapes),
+    }
+
+
 # ------------------------------------------------------------------ #
 #  Singleton
 # ------------------------------------------------------------------ #
 _manager: WhiteboardManager | None = None
+_MANAGER_MODULE_ALIASES = (
+    "usr.plugins.a0_whiteboard.helpers.whiteboard",
+    "whiteboard",
+)
+
+
+def _mirror_manager_singleton(manager: WhiteboardManager) -> None:
+    """Keep one in-memory board when helpers.whiteboard is imported under aliases."""
+    for mod_name in _MANAGER_MODULE_ALIASES:
+        mod = sys.modules.get(mod_name)
+        if mod is not None:
+            mod._manager = manager
+    current = sys.modules.get(__name__)
+    if current is not None:
+        current._manager = manager
 
 
 def get_shared_manager() -> WhiteboardManager:
     global _manager
-    if _manager is None:
-        _manager = WhiteboardManager()
+    if _manager is not None:
+        resolved = _resolve_boards_dir()
+        if _manager._boards_dir != resolved:
+            _manager._boards_dir = resolved
+        return _manager
+
+    for mod_name in _MANAGER_MODULE_ALIASES:
+        mod = sys.modules.get(mod_name)
+        existing = getattr(mod, "_manager", None) if mod is not None else None
+        if existing is not None:
+            _manager = existing
+            _manager._boards_dir = _resolve_boards_dir()
+            _mirror_manager_singleton(_manager)
+            return _manager
+
+    _manager = WhiteboardManager()
+    _mirror_manager_singleton(_manager)
     return _manager

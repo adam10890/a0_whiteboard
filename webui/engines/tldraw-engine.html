@@ -34,6 +34,7 @@
     let editor = null;
     let applyingRemote = false;
     let broadcastTimer = null;
+    const pendingIntents = [];
 
     const bridgeUrl = new URL('./tldraw-shape-bridge.js', import.meta.url).href;
     const { shapesToTLShapes, tlShapesToShapes } =
@@ -70,40 +71,52 @@
       }, 250);
     }
 
+    function createRemoteShapes(partials, context) {
+      if (!editor || !partials.length) {
+        return;
+      }
+      applyingRemote = true;
+      try {
+        editor.run(() => editor.createShapes(partials));
+      } catch (err) {
+        console.warn(`[tldraw-engine] ${context} failed:`, err);
+      } finally {
+        setTimeout(() => { applyingRemote = false; }, 50);
+      }
+    }
+
     function applyServerShapes(shapes) {
       if (!editor) return;
       applyingRemote = true;
       try {
         const existing = editor.getCurrentPageShapes();
         if (existing.length) {
-          editor.deleteShapes(existing.map(s => s.id));
+          editor.run(() => editor.deleteShapes(existing.map(s => s.id)));
         }
         const partials = shapesToTLShapes(shapes || []);
         if (partials.length) {
-          editor.createShapes(partials);
+          createRemoteShapes(partials, 'applyServerShapes');
+        } else {
+          setTimeout(() => { applyingRemote = false; }, 50);
         }
       } catch (err) {
         console.warn('[tldraw-engine] applyServerShapes failed:', err);
-      } finally {
         setTimeout(() => { applyingRemote = false; }, 50);
       }
     }
 
     function applyIntent(action, data) {
-      if (!editor) return;
+      if (!editor) {
+        pendingIntents.push({ action, data });
+        return;
+      }
       if (action === 'create_shapes' && Array.isArray(data?.shapes)) {
-        applyingRemote = true;
-        try {
-          const partials = shapesToTLShapes(data.shapes);
-          if (partials.length) editor.createShapes(partials);
-        } finally {
-          setTimeout(() => { applyingRemote = false; }, 50);
-        }
+        createRemoteShapes(shapesToTLShapes(data.shapes), 'applyIntent');
       } else if (action === 'clear_canvas') {
         applyingRemote = true;
         try {
           const existing = editor.getCurrentPageShapes();
-          if (existing.length) editor.deleteShapes(existing.map(s => s.id));
+          if (existing.length) editor.run(() => editor.deleteShapes(existing.map(s => s.id)));
         } finally {
           setTimeout(() => { applyingRemote = false; }, 50);
         }
@@ -126,6 +139,10 @@
       try {
         editor.user.updateUserPreferences({ colorScheme: 'dark' });
       } catch (err) { /* ignore */ }
+      while (pendingIntents.length) {
+        const pending = pendingIntents.shift();
+        applyIntent(pending.action, pending.data);
+      }
       window.parent.postMessage({ type: 'whiteboard:request_sync' }, '*');
     }
 
@@ -136,7 +153,8 @@
         const state = msg.state || {};
         applyServerShapes(state.shapes || []);
       } else if (msg.type === 'whiteboard:state_change') {
-        if (Array.isArray(msg.shapes)) applyServerShapes(msg.shapes);
+        const state = msg.state || msg;
+        applyServerShapes(state.shapes || msg.shapes || []);
       } else if (msg.type === 'whiteboard:intent') {
         applyIntent(msg.action, msg.data);
       } else if (msg.type === 'whiteboard:connection_status') {

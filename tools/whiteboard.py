@@ -47,7 +47,7 @@ class Whiteboard(Tool):
         y = float(self.args.get("y", 50))
 
         try:
-            from usr.plugins.a0_whiteboard.helpers.whiteboard import get_shared_manager
+            from usr.plugins.a0_whiteboard.helpers.whiteboard import get_shared_manager, build_state_snapshot
             manager = get_shared_manager()
         except Exception as exc:
             logger.error("Whiteboard manager import failed: %s", exc)
@@ -89,13 +89,15 @@ class Whiteboard(Tool):
             result = await manager.create_shapes(incoming)
             if result.success:
                 created_shapes = manager.get_shapes()[-result.count:] if result.count else []
+                intent_payload = {
+                    "action": "create_shapes",
+                    "data": {"shapes": created_shapes},
+                    "metadata": {"source": "agent"},
+                }
+                await manager.broadcast_event("whiteboard_intent", intent_payload)
                 await manager.broadcast_event(
-                    "whiteboard_intent",
-                    {
-                        "action": "create_shapes",
-                        "data": {"shapes": created_shapes},
-                        "metadata": {"source": "agent"},
-                    },
+                    "whiteboard_state_change",
+                    build_state_snapshot(manager),
                 )
                 return Response(
                     message=f"Created {result.count} shape(s) on whiteboard '{manager.current_board_name}'.",
@@ -110,6 +112,10 @@ class Whiteboard(Tool):
                 await manager.broadcast_event(
                     "whiteboard_intent",
                     {"action": "clear_canvas", "data": {}, "metadata": {"source": "agent"}},
+                )
+                await manager.broadcast_event(
+                    "whiteboard_state_change",
+                    build_state_snapshot(manager),
                 )
             return Response(
                 message=f"Cleared {result.count} shape(s) from whiteboard '{manager.current_board_name}'.",
@@ -134,7 +140,7 @@ class Whiteboard(Tool):
             if result.success:
                 await manager.broadcast_event(
                     "whiteboard_state_change",
-                    {"state": manager.state.model_dump()},
+                    build_state_snapshot(manager),
                 )
                 return Response(
                     message=f"Loaded board '{manager.current_board_name}' ({result.count} shapes).",

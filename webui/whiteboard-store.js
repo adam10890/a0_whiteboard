@@ -30,6 +30,12 @@ async function wbPost(handler, body = {}) {
     return callJsonApi(`${API_BASE}/${handler}`, body);
 }
 
+let _sharedWsClient = null;
+let _wsHandlersRegistered = false;
+let _boundIframeHandler = null;
+let _iframeListenerReady = false;
+const STATE_REQUEST_MIN_MS = 300;
+
 export const store = createStore('whiteboard', {
     privacyMode: false,
     connectionStatus: 'disconnected',
@@ -43,13 +49,33 @@ export const store = createStore('whiteboard', {
     _wsClient: null,
     _mounted: false,
     _applyingRemote: false,
+    _lastStateRequestAt: 0,
+    _boardRevision: 0,
+    _boardShapeCount: -1,
+    _boardFingerprint: '',
+    _reconcileTimer: null,
+
+    requestStateFromServer() {
+        const now = Date.now();
+        if (now - (this._lastStateRequestAt || 0) < STATE_REQUEST_MIN_MS) return;
+        this._lastStateRequestAt = now;
+        if (this._wsClient && this.connectionStatus === 'connected') {
+            this._wsClient.emit('whiteboard_request_state', {}).catch(() => {});
+        }
+    },
 
     init() {
+        if (this._initDone) return;
+        this._initDone = true;
         try {
             const saved = localStorage.getItem(LS_ENGINE);
             if (saved === 'tldraw' || saved === 'html5') this.currentEngine = saved;
         } catch (e) { /* ignore */ }
-        window.addEventListener('message', this.handleIframeMessage.bind(this));
+        if (!_iframeListenerReady) {
+            _iframeListenerReady = true;
+            _boundIframeHandler = (event) => this.handleIframeMessage(event);
+            window.addEventListener('message', _boundIframeHandler);
+        }
     },
 
     get engineUrl() {
@@ -58,13 +84,15 @@ export const store = createStore('whiteboard', {
 
     onPanelMount(el) {
         this._mounted = true;
-        if (!this._wsClient) this.connectWebSocket();
+        this.connectWebSocket();
         try { this.pendingAttention = false; } catch (e) {}
     },
 
     // Right Canvas surface lifecycle — called by register-whiteboard.js when the
     // surface is mounted into the canvas (canvas or modal mode).
     async onOpen(el, opts = {}) {
+        this.init();
+        this._panelRoot = el || this._panelRoot || null;
         if (opts && (opts.mode === 'canvas' || opts.mode === 'modal')) {
             this.surfaceMode = opts.mode;
         }
@@ -121,13 +149,9 @@ export const store = createStore('whiteboard', {
 
         if (message.type === 'whiteboard:iframe_ready') {
             this.sendToIframe({ type: 'whiteboard:connection_status', status: this.connectionStatus });
-            if (this._wsClient) {
-                this._wsClient.emit('whiteboard_request_state', {}).catch(() => {});
-            }
+            this.requestStateFromServer();
         } else if (message.type === 'whiteboard:request_sync') {
-            if (this._wsClient) {
-                this._wsClient.emit('whiteboard_request_state', {}).catch(() => {});
-            }
+            this.requestStateFromServer();
         } else if (message.type === 'whiteboard:state_change' || message.type === 'whiteboard:full_state') {
             if (this._applyingRemote) return;
             if (!this.privacyMode && this._wsClient) {
@@ -145,12 +169,84 @@ export const store = createStore('whiteboard', {
         return payload;
     },
 
+    _boardFingerprintFrom(shapes) {
+        if (!Array.isArray(shapes)) return '';
+        return shapes
+            .map((s) => `${s?.id || ''}|${s?.type || ''}|${Math.round(Number(s?.x) || 0)}|${Math.round(Number(s?.y) || 0)}`)
+            .sort()
+            .join('\n');
+    },
+
+    _extractSnapshot(payload) {
+        if (!payload || typeof payload !== 'object') return null;
+        const state = payload.state && typeof payload.state === 'object' ? payload.state : payload;
+        const shapes = Array.isArray(state?.shapes)
+            ? state.shapes
+            : (Array.isArray(payload.shapes) ? payload.shapes : []);
+        const revision = Number(state?.updated_at ?? payload?.revision ?? 0);
+        const stateOut = {
+            ...state,
+            shapes,
+            updated_at: revision || state?.updated_at || Date.now() / 1000,
+        };
+        return {
+            state: stateOut,
+            shapes,
+            revision: revision || stateOut.updated_at,
+            count: shapes.length,
+            fingerprint: this._boardFingerprintFrom(shapes),
+        };
+    },
+
+    scheduleBoardReconcile(opts = {}) {
+        const delay = opts.immediate ? 0 : 120;
+        if (this._reconcileTimer) clearTimeout(this._reconcileTimer);
+        this._reconcileTimer = setTimeout(() => {
+            this._reconcileTimer = null;
+            this.requestStateFromServer();
+        }, delay);
+    },
+
+    reconcileFromServer(payload, meta = {}) {
+        const snap = payload ? this._extractSnapshot(payload) : null;
+        if (!snap) {
+            this.scheduleBoardReconcile({ immediate: true });
+            return false;
+        }
+
+        const changed = snap.revision !== this._boardRevision
+            || snap.count !== this._boardShapeCount
+            || snap.fingerprint !== this._boardFingerprint;
+
+        if (!changed) return false;
+
+        const prevCount = this._boardShapeCount;
+        this._boardRevision = snap.revision;
+        this._boardShapeCount = snap.count;
+        this._boardFingerprint = snap.fingerprint;
+
+        this._applyingRemote = true;
+        this.sendToIframe({ type: 'whiteboard:initial_state', state: snap.state });
+        setTimeout(() => { this._applyingRemote = false; }, 400);
+
+        if (prevCount >= 0 && snap.count !== prevCount && meta.source !== 'initial') {
+            const delta = snap.count - prevCount;
+            const label = delta > 0 ? `+${delta}` : `${delta}`;
+            this.showToast(`🔄 לוח מסונכרן (${label}, ${snap.count} סה"כ)`);
+        }
+        return true;
+    },
+
     togglePrivacyMode() {
         this.privacyMode = !this.privacyMode;
     },
 
     sendToIframe(message) {
-        const iframe = document.querySelector('.whiteboard-iframe');
+        const scoped = this._panelRoot?.querySelector?.('.whiteboard-iframe');
+        const global = document.querySelector('.whiteboard-iframe');
+        const visible = Array.from(document.querySelectorAll('.whiteboard-iframe'))
+            .find((node) => node.offsetParent !== null);
+        const iframe = scoped || visible || global;
         if (iframe?.contentWindow) {
             iframe.contentWindow.postMessage(message, '*');
         }
@@ -227,58 +323,69 @@ export const store = createStore('whiteboard', {
     connectWebSocket() {
         try {
             this.connectionStatus = 'connecting';
-            this._wsClient = getNamespacedClient('/ws');
-            this._wsClient.addHandlers(['plugins/a0_whiteboard/ws_whiteboard']);
+            if (!_sharedWsClient) {
+                _sharedWsClient = getNamespacedClient('/ws');
+                _sharedWsClient.addHandlers(['plugins/a0_whiteboard/ws_whiteboard']);
+            }
+            this._wsClient = _sharedWsClient;
 
-            this._wsClient.onConnect(() => {
+            if (!_wsHandlersRegistered) {
+                _wsHandlersRegistered = true;
+
+                this._wsClient.onConnect(() => {
+                    store.connectionStatus = 'connected';
+                    store.reconnectAttempts = 0;
+                    if (store._reconnectTimer) clearTimeout(store._reconnectTimer);
+                    store.sendToIframe({ type: 'whiteboard:connection_status', status: 'connected' });
+                    store.requestStateFromServer();
+                    store.showToast('🟢 Connected to agent');
+                });
+
+                this._wsClient.onDisconnect(() => {
+                    if (store.connectionStatus === 'connected') {
+                        store.showToast('🔴 Disconnected from agent');
+                    }
+                    store.connectionStatus = 'disconnected';
+                    store.sendToIframe({ type: 'whiteboard:connection_status', status: 'disconnected' });
+                    store.scheduleReconnect();
+                });
+
+                this._wsClient.onError((error) => {
+                    const msg = String(error?.message || error || '');
+                    // Shared /ws client: other plugins (e.g. swarm on "connect") can trigger envelope validation errors.
+                    if (msg.includes('envelope must be a plain object') || msg.includes('Server envelope')) {
+                        return;
+                    }
+                    store.connectionStatus = 'disconnected';
+                    console.error('[Whiteboard] WebSocket error:', error);
+                    store.scheduleReconnect();
+                });
+
+                this._wsClient.on('whiteboard_initial_state', (envelope) => {
+                    const payload = store._unwrapWsPayload(envelope);
+                    store.reconcileFromServer(payload, { source: 'initial' });
+                });
+
+                this._wsClient.on('whiteboard_intent', (envelope) => {
+                    const payload = store._unwrapWsPayload(envelope);
+                    const { action, data } = payload || {};
+                    if (payload?.metadata?.source === 'agent') {
+                        store.showAgentNotification(action, data);
+                    }
+                    // Authoritative sync: pull full server snapshot instead of incremental iframe intents.
+                    store.scheduleBoardReconcile({ immediate: true });
+                });
+
+                this._wsClient.on('whiteboard_state_change', (envelope) => {
+                    const payload = store._unwrapWsPayload(envelope);
+                    store.reconcileFromServer(payload, { source: 'state_change' });
+                });
+            }
+
+            if (this._wsClient.isConnected?.()) {
                 this.connectionStatus = 'connected';
-                this.reconnectAttempts = 0;
-                if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
-                this.sendToIframe({ type: 'whiteboard:connection_status', status: 'connected' });
-                this._wsClient.emit('whiteboard_request_state', {}).catch(() => {});
-                this.showToast('🟢 Connected to agent');
-            });
-
-            this._wsClient.onDisconnect(() => {
-                if (this.connectionStatus === 'connected') {
-                    this.showToast('🔴 Disconnected from agent');
-                }
-                this.connectionStatus = 'disconnected';
-                this.sendToIframe({ type: 'whiteboard:connection_status', status: 'disconnected' });
-                this.scheduleReconnect();
-            });
-
-            this._wsClient.onError((error) => {
-                this.connectionStatus = 'disconnected';
-                console.error('[Whiteboard] WebSocket error:', error);
-                this.scheduleReconnect();
-            });
-
-            this._wsClient.on('whiteboard_initial_state', (envelope) => {
-                const payload = this._unwrapWsPayload(envelope);
-                const state = payload.state || payload;
-                if (state) {
-                    this._applyingRemote = true;
-                    this.sendToIframe({ type: 'whiteboard:initial_state', state });
-                    setTimeout(() => { this._applyingRemote = false; }, 400);
-                }
-            });
-
-            this._wsClient.on('whiteboard_intent', (envelope) => {
-                const payload = this._unwrapWsPayload(envelope);
-                const { action, data } = payload || {};
-                this.sendToIframe({ type: 'whiteboard:intent', action, data, metadata: payload?.metadata });
-                if (payload?.metadata?.source === 'agent') {
-                    this.showAgentNotification(action, data);
-                }
-            });
-
-            this._wsClient.on('whiteboard_state_change', (envelope) => {
-                const payload = this._unwrapWsPayload(envelope);
-                this._applyingRemote = true;
-                this.sendToIframe({ type: 'whiteboard:state_change', ...payload });
-                setTimeout(() => { this._applyingRemote = false; }, 400);
-            });
+                return;
+            }
 
             this._wsClient.connect().catch((error) => {
                 this.connectionStatus = 'disconnected';
@@ -312,7 +419,13 @@ export const store = createStore('whiteboard', {
             }
             const boardList = result.boards.map((b, i) => `${i + 1}. ${b.name} (${b.shape_count} shapes)`).join('\n');
             const selection = prompt(`Select board to load:\n\n${boardList}\n\nEnter name or number:`);
-            if (selection) await this.loadBoard(selection.trim());
+            if (!selection) return;
+            const trimmed = selection.trim();
+            const idx = parseInt(trimmed, 10);
+            const name = (!Number.isNaN(idx) && idx >= 1 && idx <= result.boards.length)
+                ? result.boards[idx - 1].name
+                : trimmed;
+            await this.loadBoard(name);
         } catch (e) {
             this.showToast('❌ Failed to list boards');
         }
@@ -322,8 +435,12 @@ export const store = createStore('whiteboard', {
         try {
             const result = await wbPost('whiteboard_load', { data: { name } });
             if (result.success) {
-                this.showToast(`📂 Loaded: ${result.name}`);
-                if (this._wsClient) this._wsClient.emit('whiteboard_request_state', {}).catch(() => {});
+                this.showToast(`📂 Loaded: ${result.name} (${result.count} shapes)`);
+                if (result.state) {
+                    this.reconcileFromServer({ state: result.state }, { source: 'load' });
+                } else if (this._wsClient) {
+                    this.requestStateFromServer();
+                }
             } else {
                 this.showToast(`❌ Failed: ${result.error}`);
             }
@@ -338,6 +455,9 @@ export const store = createStore('whiteboard', {
             const result = await wbPost('whiteboard_clear', {});
             if (result.success) {
                 this.showToast(`🗑️ Cleared: ${result.count} shapes removed`);
+                if (this._wsClient) {
+                    this._wsClient.emit('whiteboard_state_change', { shapes: [] }).catch(() => {});
+                }
                 this.sendToIframe({ type: 'whiteboard:intent', action: 'clear_canvas' });
             } else {
                 this.showToast(`❌ Failed: ${result.error}`);

@@ -137,6 +137,49 @@ function optionalRichText(text) {
     return value ? { richText: toRichText(value) } : {};
 }
 
+const GEO_BASE_PROPS = {
+    dash: 'draw',
+    labelColor: 'black',
+    font: 'draw',
+    align: 'middle',
+    verticalAlign: 'middle',
+    growY: 0,
+    url: '',
+    scale: 1,
+    richText: toRichText(''),
+};
+
+function geoProps(geo, shape, p, color, fill, size) {
+    return {
+        ...GEO_BASE_PROPS,
+        geo,
+        w: Number(shape.w) || 100,
+        h: Number(shape.h) || 60,
+        color,
+        labelColor: color,
+        fill,
+        size,
+        ...optionalRichText(p.text),
+    };
+}
+
+function flatPointsToLineRecord(flatPoints, originX, originY) {
+    const pts = pairsToPoints(flatPoints);
+    if (pts.length < 2) return null;
+    const record = {};
+    const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+    pts.forEach((pt, i) => {
+        const id = alphabet[i] || `p${i}`;
+        record[id] = {
+            id,
+            index: id,
+            x: (Number(pt.x) || 0) - originX,
+            y: (Number(pt.y) || 0) - originY,
+        };
+    });
+    return record;
+}
+
 /** Backend Shape -> tldraw TLShape partial (suitable for editor.createShapes). */
 export function toTLShape(shape) {
     if (!shape || typeof shape !== 'object') return null;
@@ -156,13 +199,7 @@ export function toTLShape(shape) {
         case 'rectangle':
             return {
                 id, type: 'geo', x, y,
-                props: {
-                    geo: 'rectangle',
-                    w: Number(shape.w) || 100,
-                    h: Number(shape.h) || 60,
-                    color, fill, size,
-                    ...optionalRichText(p.text),
-                },
+                props: geoProps('rectangle', shape, p, color, fill, size),
             };
         case 'ellipse':
         case 'circle': {
@@ -170,29 +207,13 @@ export function toTLShape(shape) {
             const h = Number(shape.h) || (Number(shape.r) || 50) * 2;
             return {
                 id, type: 'geo', x, y,
-                props: {
-                    geo: 'ellipse',
-                    w,
-                    h,
-                    color,
-                    fill,
-                    size,
-                    ...optionalRichText(p.text),
-                },
+                props: geoProps('ellipse', { ...shape, w, h }, p, color, fill, size),
             };
         }
         case 'triangle':
             return {
                 id, type: 'geo', x, y,
-                props: {
-                    geo: 'triangle',
-                    w: Number(shape.w) || 120,
-                    h: Number(shape.h) || 120,
-                    color,
-                    fill,
-                    size,
-                    ...optionalRichText(p.text),
-                },
+                props: geoProps('triangle', shape, p, color, fill, size),
             };
         case 'text':
             return {
@@ -217,6 +238,23 @@ export function toTLShape(shape) {
                 },
             };
         case 'line':
+        case 'polygon': {
+            const linePoints = flatPointsToLineRecord(shape.points, x, y);
+            if (linePoints) {
+                return {
+                    id, type: 'line', x, y,
+                    props: {
+                        color,
+                        dash: 'draw',
+                        size,
+                        spline: 'line',
+                        points: linePoints,
+                        scale: 1,
+                    },
+                };
+            }
+            break;
+        }
         case 'draw':
         default: {
             const pts = pairsToPoints(shape.points);

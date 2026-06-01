@@ -3,36 +3,37 @@
   Loaded by the canvas system; replaces the legacy floating panel.html.
   No drag/resize/minimize/fullscreen — the canvas chrome owns those.
 -->
+<script type="module" src="/plugins/a0_whiteboard/webui/whiteboard-store.js"></script>
 <div x-data class="wb-surface-root" data-surface-id="whiteboard">
   <div class="wb-panel"
        x-create="$store.whiteboard && $store.whiteboard.onOpen($el)"
        x-destroy="$store.whiteboard && $store.whiteboard.cleanup($el)"
-       :data-mode="$store.whiteboard.surfaceMode" :data-attention="$store.whiteboard.pendingAttention">
+       :data-mode="$store.whiteboard?.surfaceMode" :data-attention="$store.whiteboard?.pendingAttention">
     <header class="wb-toolbar">
       <span class="wb-title">
         <span class="material-symbols-outlined">draw</span>
         <span>Whiteboard</span>
         <span class="wb-status"
-              :class="$store.whiteboard.connectionStatus"
-              :title="'WebSocket: ' + $store.whiteboard.connectionStatus"
-              x-text="$store.whiteboard.connectionStatus === 'connected' ? '●' : '○'"></span>
+              :class="$store.whiteboard?.connectionStatus"
+              :title="'WebSocket: ' + ($store.whiteboard?.connectionStatus || 'disconnected')"
+              x-text="$store.whiteboard?.connectionStatus === 'connected' ? '●' : '○'"></span>
       </span>
       <div class="wb-actions">
-        <button class="wb-btn" @click="$store.whiteboard.saveBoard()" title="Save board">
+        <button class="wb-btn" @click="$store.whiteboard?.saveBoard()" title="Save board">
           <span class="material-symbols-outlined">save</span>
         </button>
-        <button class="wb-btn" @click="$store.whiteboard.showLoadDialog()" title="Load board">
+        <button class="wb-btn" @click="$store.whiteboard?.showLoadDialog()" title="Load board">
           <span class="material-symbols-outlined">folder_open</span>
         </button>
-        <button class="wb-btn" @click="$store.whiteboard.clearBoard()" title="Clear board">
+        <button class="wb-btn" @click="$store.whiteboard?.clearBoard()" title="Clear board">
           <span class="material-symbols-outlined">delete_sweep</span>
         </button>
         <span class="wb-divider"></span>
         <button class="wb-btn"
-                :class="{ active: $store.whiteboard.privacyMode }"
-                @click="$store.whiteboard.togglePrivacyMode()"
-                :title="$store.whiteboard.privacyMode ? 'Privacy: ON (changes stay local)' : 'Privacy: OFF (changes sync)'">
-          <span class="material-symbols-outlined" x-text="$store.whiteboard.privacyMode ? 'visibility_off' : 'visibility'"></span>
+                :class="{ active: $store.whiteboard?.privacyMode }"
+                @click="$store.whiteboard?.togglePrivacyMode()"
+                :title="$store.whiteboard?.privacyMode ? 'Privacy: ON (changes stay local)' : 'Privacy: OFF (changes sync)'">
+          <span class="material-symbols-outlined" x-text="$store.whiteboard?.privacyMode ? 'visibility_off' : 'visibility'"></span>
         </button>
         <span class="wb-divider"></span>
         <select class="wb-engine"
@@ -43,16 +44,16 @@
           <option value="html5">HTML5</option>
         </select>
         <button class="wb-btn"
-                @click="$store.whiteboard.toggleMode()"
-                :title="$store.whiteboard.surfaceMode === 'modal' ? 'Dock into canvas' : 'Pop out as modal'">
+                @click="$store.whiteboard?.toggleMode()"
+                :title="$store.whiteboard?.surfaceMode === 'modal' ? 'Dock into canvas' : 'Pop out as modal'">
           <span class="material-symbols-outlined"
-                x-text="$store.whiteboard.surfaceMode === 'modal' ? 'dock_to_right' : 'open_in_new'"></span>
+                x-text="$store.whiteboard?.surfaceMode === 'modal' ? 'dock_to_right' : 'open_in_new'"></span>
         </button>
       </div>
     </header>
     <div class="wb-body">
       <iframe class="whiteboard-iframe"
-              :src="$store.whiteboard.engineUrl"
+              :src="$store.whiteboard?.engineUrl"
               frameborder="0"
               allow="clipboard-read; clipboard-write"
               referrerpolicy="no-referrer"></iframe>
