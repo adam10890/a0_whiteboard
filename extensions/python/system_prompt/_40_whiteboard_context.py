@@ -22,14 +22,7 @@ class WhiteboardContext(Extension):
             try:
                 from usr.plugins.a0_whiteboard.helpers.whiteboard import get_shared_manager
             except ImportError:
-                import sys, os
-                _helpers = os.path.join(
-                    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                    "helpers",
-                )
-                if _helpers not in sys.path:
-                    sys.path.insert(0, _helpers)
-                from whiteboard import get_shared_manager  # type: ignore
+                from usr.plugins.a0_whiteboard.helpers.manager_access import get_shared_manager
 
             manager = get_shared_manager()
             status = await manager.get_status()

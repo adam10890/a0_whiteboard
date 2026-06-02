@@ -105,6 +105,81 @@ function pointsToFlat(points) {
     return out;
 }
 
+/** tldraw 3.11+ uses richText instead of props.text on text/geo shapes. */
+export function toRichText(text) {
+    const value = String(text ?? '');
+    if (!value) {
+        return { type: 'doc', content: [] };
+    }
+    return {
+        type: 'doc',
+        content: [{
+            type: 'paragraph',
+            content: [{ type: 'text', text: value }],
+        }],
+    };
+}
+
+export function plainTextFromRichText(richText) {
+    if (!richText || typeof richText !== 'object') return '';
+    const parts = [];
+    const walk = (node) => {
+        if (!node || typeof node !== 'object') return;
+        if (node.type === 'text' && typeof node.text === 'string') parts.push(node.text);
+        if (Array.isArray(node.content)) node.content.forEach(walk);
+    };
+    walk(richText);
+    return parts.join('');
+}
+
+function optionalRichText(text) {
+    const value = String(text ?? '').trim();
+    return value ? { richText: toRichText(value) } : {};
+}
+
+const GEO_BASE_PROPS = {
+    dash: 'draw',
+    labelColor: 'black',
+    font: 'draw',
+    align: 'middle',
+    verticalAlign: 'middle',
+    growY: 0,
+    url: '',
+    scale: 1,
+    richText: toRichText(''),
+};
+
+function geoProps(geo, shape, p, color, fill, size) {
+    return {
+        ...GEO_BASE_PROPS,
+        geo,
+        w: Number(shape.w) || 100,
+        h: Number(shape.h) || 60,
+        color,
+        labelColor: color,
+        fill,
+        size,
+        ...optionalRichText(p.text),
+    };
+}
+
+function flatPointsToLineRecord(flatPoints, originX, originY) {
+    const pts = pairsToPoints(flatPoints);
+    if (pts.length < 2) return null;
+    const record = {};
+    const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+    pts.forEach((pt, i) => {
+        const id = alphabet[i] || `p${i}`;
+        record[id] = {
+            id,
+            index: id,
+            x: (Number(pt.x) || 0) - originX,
+            y: (Number(pt.y) || 0) - originY,
+        };
+    });
+    return record;
+}
+
 /** Backend Shape -> tldraw TLShape partial (suitable for editor.createShapes). */
 export function toTLShape(shape) {
     if (!shape || typeof shape !== 'object') return null;
@@ -124,13 +199,7 @@ export function toTLShape(shape) {
         case 'rectangle':
             return {
                 id, type: 'geo', x, y,
-                props: {
-                    geo: 'rectangle',
-                    w: Number(shape.w) || 100,
-                    h: Number(shape.h) || 60,
-                    color, fill, size,
-                    text: p.text || '',
-                },
+                props: geoProps('rectangle', shape, p, color, fill, size),
             };
         case 'ellipse':
         case 'circle': {
@@ -138,13 +207,26 @@ export function toTLShape(shape) {
             const h = Number(shape.h) || (Number(shape.r) || 50) * 2;
             return {
                 id, type: 'geo', x, y,
-                props: { geo: 'ellipse', w, h, color, fill, size, text: p.text || '' },
+                props: geoProps('ellipse', { ...shape, w, h }, p, color, fill, size),
             };
         }
+        case 'triangle':
+            return {
+                id, type: 'geo', x, y,
+                props: geoProps('triangle', shape, p, color, fill, size),
+            };
         case 'text':
             return {
                 id, type: 'text', x, y,
-                props: { color, size, text: p.text || '' },
+                props: {
+                    color,
+                    size,
+                    font: 'draw',
+                    textAlign: 'start',
+                    autoSize: true,
+                    scale: 1,
+                    richText: toRichText(p.text || ''),
+                },
             };
         case 'arrow':
             return {
@@ -156,17 +238,35 @@ export function toTLShape(shape) {
                 },
             };
         case 'line':
+        case 'polygon': {
+            const linePoints = flatPointsToLineRecord(shape.points, x, y);
+            if (linePoints) {
+                return {
+                    id, type: 'line', x, y,
+                    props: {
+                        color,
+                        dash: 'draw',
+                        size,
+                        spline: 'line',
+                        points: linePoints,
+                        scale: 1,
+                    },
+                };
+            }
+            break;
+        }
         case 'draw':
         default: {
             const pts = pairsToPoints(shape.points);
             if (!pts.length) pts.push({ x: 0, y: 0 });
+            const isClosed = type === 'triangle' || type === 'polygon' || Boolean(p.closed);
             return {
                 id, type: 'draw', x, y,
                 props: {
                     color, size,
                     segments: [{ type: 'free', points: pts }],
                     isComplete: true,
-                    isClosed: false,
+                    isClosed,
                 },
             };
         }
@@ -182,9 +282,10 @@ export function fromTLShape(tl) {
     const props = tl.props || {};
     const color = tldrawColorToHex(props.color);
     const fontSize = bucketToPx(props.size);
+    const labelText = plainTextFromRichText(props.richText) || props.text || '';
 
     const baseProps = {
-        text: props.text || '',
+        text: labelText,
         color,
         strokeWidth: 2,
         fill: props.fill === 'solid' ? color : 'transparent',
@@ -193,6 +294,9 @@ export function fromTLShape(tl) {
 
     switch (tl.type) {
         case 'geo':
+            if (props.geo === 'triangle') {
+                return { id, type: 'triangle', x, y, w: props.w, h: props.h, props: baseProps };
+            }
             if (props.geo === 'ellipse') {
                 return { id, type: 'ellipse', x, y, w: props.w, h: props.h, props: baseProps };
             }

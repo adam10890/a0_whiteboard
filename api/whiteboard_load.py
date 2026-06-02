@@ -6,13 +6,9 @@ class WhiteboardLoad(ApiHandler):
     async def process(self, input: dict, request: Request) -> dict:
         try:
             try:
-                from usr.plugins.a0_whiteboard.helpers.whiteboard import get_shared_manager
+                from usr.plugins.a0_whiteboard.helpers.whiteboard import get_shared_manager, build_state_snapshot
             except ImportError:
-                import sys, os
-                _helpers = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "helpers")
-                if _helpers not in sys.path:
-                    sys.path.insert(0, _helpers)
-                from whiteboard import get_shared_manager  # type: ignore
+                from usr.plugins.a0_whiteboard.helpers.manager_access import get_shared_manager, build_state_snapshot
             manager = get_shared_manager()
             name = (input.get("data") or {}).get("name", "")
             if not name:
@@ -21,7 +17,7 @@ class WhiteboardLoad(ApiHandler):
             if result.success:
                 await manager.broadcast_event(
                     "whiteboard_state_change",
-                    {"state": manager.state.model_dump()},
+                    build_state_snapshot(manager),
                 )
             return {
                 "success": result.success,

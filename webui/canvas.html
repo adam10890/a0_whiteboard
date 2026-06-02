@@ -308,6 +308,17 @@ function drawShape(shape) {
     ctx.moveTo(pts[0], pts[1]);
     for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
     ctx.stroke();
+  } else if (shape.type === 'triangle') {
+    const x = shape.x || 0;
+    const y = shape.y || 0;
+    const w = shape.w || shape.width || 120;
+    const h = shape.h || shape.height || 120;
+    ctx.moveTo(x + w / 2, y);
+    ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x, y + h);
+    ctx.closePath();
+    if (fill && fill !== 'transparent') ctx.fill();
+    ctx.stroke();
   } else if (shape.type === 'rect' || shape.type === 'rectangle') {
     ctx.rect(shape.x || 0, shape.y || 0, shape.w || shape.width || 100, shape.h || shape.height || 60);
     if (fill && fill !== 'transparent') ctx.fill();

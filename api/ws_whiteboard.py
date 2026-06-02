@@ -12,18 +12,14 @@ class WsWhiteboard(WsHandler):
 
     async def process(self, event: str, data: dict, sid: str) -> dict | None:
         try:
-            from usr.plugins.a0_whiteboard.helpers.whiteboard import get_shared_manager
+            from usr.plugins.a0_whiteboard.helpers.whiteboard import get_shared_manager, build_state_snapshot
         except ImportError:
-            import sys, os
-            _helpers = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "helpers")
-            if _helpers not in sys.path:
-                sys.path.insert(0, _helpers)
-            from whiteboard import get_shared_manager  # type: ignore
+            from usr.plugins.a0_whiteboard.helpers.manager_access import get_shared_manager, build_state_snapshot
         manager = get_shared_manager()
 
         if event == "whiteboard_request_state":
-            state = manager.state.model_dump()
-            await self.emit_to(sid, "whiteboard_initial_state", {"state": state})
+            snapshot = build_state_snapshot(manager)
+            await self.emit_to(sid, "whiteboard_initial_state", snapshot)
             return None
 
         if event == "whiteboard_state_change":
@@ -34,7 +30,8 @@ class WsWhiteboard(WsHandler):
                 update["dataUrl"] = data.get("dataUrl") or ""
             if update:
                 await manager.apply_state(update)
-            await self.broadcast("whiteboard_state_change", data, exclude_sids=sid)
+            snapshot = build_state_snapshot(manager)
+            await self.broadcast("whiteboard_state_change", snapshot, exclude_sids=sid)
             return None
 
         if event == "whiteboard_intent":
