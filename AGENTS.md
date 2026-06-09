@@ -1,61 +1,46 @@
-# AGENTS.md — a0_whiteboard
+# DOX contract - a0_whiteboard
 
-**Version:** 0.4.1 | **Target:** Agent Zero v1.15–v1.17
+## Purpose
 
-## What this plugin does
+Collaborative Right Canvas whiteboard plugin for Agent Zero. It owns board
+state helpers, agent drawing tools, WebSocket/API synchronization, and web UI
+surfaces for tldraw/HTML5 canvas workflows.
 
-Adds a collaborative canvas surface to Agent Zero's Right Canvas panel. The agent draws shapes via the `whiteboard` tool; a Socket.IO connection (`/whiteboard` namespace) pushes updates to the browser in real time. Boards persist to `usr/workdir/whiteboard_boards/`.
+## Ownership
 
-## Key files
+- This folder is plugin source; saved boards and user drawings are runtime data.
+- Board persistence belongs under the configured Agent Zero workdir, not plugin
+  source.
+- The whiteboard is an annotation/canvas surface. It should not become the
+  source of truth for Pen & Paper workflows or external documents.
 
-| Path | Role |
-|---|---|
-| `plugin.yaml` | Manifest — name, version, settings section |
-| `tools/whiteboard.py` | `Whiteboard(Tool)` — 7 actions the agent calls |
-| `helpers/whiteboard.py` | `SharedWhiteboardManager` singleton — all state lives here |
-| `api/ws_whiteboard.py` | Socket.IO `/whiteboard` namespace handler |
-| `api/whiteboard_*.py` | REST endpoints (clear, list, load, save) |
-| `extensions/python/` | `right_canvas_register_surfaces` hook |
-| `webui/engines/tldraw-engine.html` | tldraw iframe (default engine, loads from esm.sh) |
-| `webui/engines/canvas.html` | HTML5 fallback (offline-safe) |
-| `webui/main.html` | Panel shell — engine switcher |
+## Local Contracts
 
-## Tool: `whiteboard`
+- `plugin.yaml:name` must stay `a0_whiteboard`.
+- Helper code owns board state, serialization, and broadcast semantics.
+- Tool/API/webui surfaces must share the same board model.
+- Optional engines must degrade gracefully; a UI engine failure must not break
+  the agent loop.
 
-All calls return `Response(message=..., break_loop=False)`.
+## Work Guidance
 
-| Action | Key args | Notes |
-|---|---|---|
-| `status` | — | Board name + shape count |
-| `describe` | — | Human-readable shape list |
-| `create` | `shapes[]`, or `shape`, or `text`+`x`+`y` | Adds shapes; broadcasts `whiteboard_intent` |
-| `clear` | — | Removes all shapes; broadcasts event |
-| `save` | `board_name` (opt) | Persists to `usr/workdir/whiteboard_boards/` |
-| `load` | `board_name` (required) | Restores board; broadcasts `whiteboard_state_change` |
-| `list_boards` | — | Returns list with shape counts |
+- Preserve explicit user focus rules for Right Canvas surfaces.
+- Keep agent drawing commands deterministic and easy to audit.
+- When another plugin sends shapes to Whiteboard, treat the result as a derived
+  annotation copy, not ownership transfer.
 
-## Internal import path
+## Verification
 
-```python
-from usr.plugins.a0_whiteboard.helpers.whiteboard import get_shared_manager
-```
+- Run `python -m py_compile` on touched Python files.
+- For web UI changes, manually inspect the affected HTML/JS wiring and API
+  route names.
+- For board-state changes, verify save/load/broadcast paths stay aligned.
 
-## How to add a tool action
+## Child DOX Index
 
-1. Add `elif action == "my_action":` in `Whiteboard.execute()`.
-2. Call manager method + optionally `await manager.broadcast_event(event_name, payload)`.
-3. Return `Response(message=..., break_loop=False)`.
-
-## How to add a REST endpoint
-
-Add `api/whiteboard_<name>.py` — A0 auto-discovers all files in `api/`.
-
-## Right Canvas registration
-
-`extensions/python/` calls `right_canvas_register_surfaces` with `icon` + `title`. Without this the surface does not appear in the panel picker.
-
-## Constraints
-
-- Boards storage is outside the plugin dir (`usr/workdir/whiteboard_boards/`) — never write board data inside the plugin tree.
-- Agent canvas auto-open is opt-in (v1.16+): use `pendingAttention` signal, do NOT force-focus.
-- The HTML5 engine is the only offline-safe option — tldraw requires esm.sh on first load.
+- `helpers/AGENTS.md` — board state, serialization, and broadcast helpers.
+- `tools/AGENTS.md` — agent-facing drawing tools.
+- `api/AGENTS.md` — HTTP/WebSocket-adjacent API wrappers.
+- `webui/AGENTS.md` — Right Canvas UI and engine-specific frontend code.
+- `extensions/AGENTS.md` — Agent Zero registration hooks.
+- `docs/AGENTS.md` — whiteboard runbooks and durable design notes.
